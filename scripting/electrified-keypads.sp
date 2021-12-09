@@ -132,8 +132,8 @@ Action OnMapReset(Event event, const char[] name, bool dontBroadcast)
 Action OnPlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (client)
-		delete attemptHistory[client];
+	if (client && attemptHistory[client])
+		attemptHistory[client].Clear();
 
 	return Plugin_Continue;
 }
