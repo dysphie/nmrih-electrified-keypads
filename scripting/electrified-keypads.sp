@@ -2,12 +2,14 @@
 #include <sdkhooks>
 #include <vscript_proxy>
 
+#define MAXPLAYERS_NMRIH 9
+
 public Plugin myinfo = {
     name        = "[NMRiH] Electrified Keypads",
     author      = "Dysphie",
     description = "Keypads shock players on a wrong code",
-    version     = "1.0.0",
-    url         = ""
+    version     = "1.0.1",
+    url         = "https://github.com/dysphie/nmrih-electrified-keypads"
 };
 
 ConVar cvBaseDmg;
@@ -17,7 +19,7 @@ ConVar cvViewPunch;
 
 int beam;
 StringMap lastKeypadUser;
-StringMap attemptHistory;
+StringMap attemptHistory[MAXPLAYERS_NMRIH+1];
 
 public void OnPluginStart()
 {
@@ -36,16 +38,31 @@ public void OnPluginStart()
 	AutoExecConfig(true, "plugin.electrified-keypads");
 
 	lastKeypadUser = new StringMap();
-	attemptHistory = new StringMap();
+	HookEvent("nmrih_reset_map", OnMapReset, EventHookMode_PostNoCopy);
 	HookEvent("keycode_enter", OnKeyCodeEnter, EventHookMode_Pre);
+	HookEvent("player_death", OnPlayerDeath);
 	HookEntityOutput("trigger_keypad", "OnIncorrectCode", OnIncorrectCode);
+}
+
+public void OnClientDisconnect(int client)
+{
+	delete attemptHistory[client];
 }
 
 public void OnMapStart()
 {
-	lastKeypadUser.Clear();
-	attemptHistory.Clear();
+	ClearKeypads();
 	beam = PrecacheModel("materials/sprites/laserbeam.vmt", true);
+}
+
+void ClearKeypads()
+{
+	lastKeypadUser.Clear();
+	for (int i = 1; i <= MaxClients; i++) {
+		if (attemptHistory[i]) {
+			attemptHistory[i].Clear();
+		}
+	}	
 }
 
 Action OnIncorrectCode(const char[] output, int keypad, int activator, float delay)
@@ -56,21 +73,26 @@ Action OnIncorrectCode(const char[] output, int keypad, int activator, float del
 
 	int keypadRef = EntIndexToEntRef(keypad);
 
-	char lastUseKey[11];
-	IntToString(keypadRef, lastUseKey, sizeof(lastUseKey));
+	char key[11];
+	IntToString(keypadRef, key, sizeof(key));
 
 	int client;
-	if (!lastKeypadUser.GetValue(lastUseKey, client)) {
+	if (!lastKeypadUser.GetValue(key, client)) {
 		return Plugin_Continue;
 	}
 
-	char attemptKey[32];
-	FormatEx(attemptKey, sizeof(attemptKey), "%d:%d", keypadRef, GetClientSerial(client));
+	IntToString(keypadRef, key, sizeof(key));
 
 	int numAttempts = 0;
-	attemptHistory.GetValue(attemptKey, numAttempts);
+
+	if (!attemptHistory[client]) {
+		attemptHistory[client] = new StringMap();
+	} else {
+		attemptHistory[client].GetValue(key, numAttempts);
+	}
+
 	int dmg = cvBaseDmg.IntValue + cvMultDmg.IntValue * numAttempts;
-	attemptHistory.SetValue(attemptKey, ++numAttempts);
+	attemptHistory[client].SetValue(key, ++numAttempts);
 	
 	float pos[3];
 	RunEntVScriptVector(keypad, pos, "GetCenter()");
@@ -97,6 +119,21 @@ Action OnIncorrectCode(const char[] output, int keypad, int activator, float del
 
 	SparkSound(keypad);
 	SDKHooks_TakeDamage(client, keypad, keypad, float(dmg), DMG_SHOCK, .damagePosition=pos);
+
+	return Plugin_Continue;
+}
+
+Action OnMapReset(Event event, const char[] name, bool dontBroadcast)
+{
+	ClearKeypads();
+	return Plugin_Continue;
+}
+
+Action OnPlayerDeath(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (client)
+		delete attemptHistory[client];
 
 	return Plugin_Continue;
 }
